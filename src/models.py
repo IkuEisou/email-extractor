@@ -32,4 +32,5 @@ class EmailExtraction(BaseModel):
     )
     
     mentioned_people: List[str] = Field(default_factory=list, description="言及されている個人名")
-    mentioned_companies: List[str] = Field(default_factory=list, description="言及されている組織や会社名")
+    mentioned_companies: List[str] = Field(default_factory=list, description="言及されている組織や会社名（例：マイクロソフト、豊田通商）")
+    mentioned_projects: List[str] = Field(default_factory=list, description="言及されているプロジェクト名やシステム名（例：WisE）")
