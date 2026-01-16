@@ -4,7 +4,7 @@ from .models import EmailExtraction, ImportanceLevel
 from .api_manager import GeminiManager
 
 class EmailExtractor:
-    """ヘッダー情報と分析結果を明確に分離して抽出するクラス"""
+    """ヘッダー情報と分析結果を明確に分離し、スマートにハイライト範囲を調整するクラス"""
     
     def __init__(self, api_manager: GeminiManager):
         self.api_manager = api_manager
@@ -13,29 +13,30 @@ class EmailExtractor:
 
     def _get_examples(self) -> list[ExampleData]:
         """
-        ヘッダー(Metadata)と、本文の分析(Analysis)を分離した例示データ
+        アライメント（位置合わせ）の確実性と、データの綺麗さを両立するための例示。
         """
-        text_1 = """# [至急] WisE システム不具合
+        text_1 = """# [至急]WisEシステム不具合
 **To:** dev@acrosstudio.co.jp
 **From:** support@toyota-tsusho.com
 **Received:** 2026-01-10 10:00:00
 
-佐藤 様、
-WisE で 不具合 が発生。 至急 修正 を。 期限 は 明日 です。"""
+佐藤様
+WisEで不具合が発生しました。至急、修正をお願いします。期限は明日です。"""
 
         text_2 = """# 会議のご案内
-**To:** hochi@acrosstudio.co.jp; kido@acrosstudio.co.jp
+**To:** hochi@acrosstudio.co.jp
 **From:** saiganji@toyota-tsusho.com
 **Received:** 2026-01-11 09:00:00
 
-保知 様、 西願寺 です。
-来週 トヨタ通商 にて 打ち合わせ を行います。 ご 同席 ください。"""
+保知様
+西願寺です。来週トヨタ通商にて打ち合わせを行います。ご同席ください。"""
 
         return [
             ExampleData(
                 text=text_1,
                 extractions=[
-                    Extraction(extraction_class="person", extraction_text="佐藤"),
+                    # 敬称を含めて抽出させることでアライメントを100%成功させる
+                    Extraction(extraction_class="person", extraction_text="佐藤様"),
                     Extraction(extraction_class="project", extraction_text="WisE"),
                     Extraction(extraction_class="keyword", extraction_text="至急"),
                     Extraction(extraction_class="keyword", extraction_text="不具合"),
@@ -44,7 +45,7 @@ WisE で 不具合 が発生。 至急 修正 を。 期限 は 明日 です。
                         extraction_class="header_info",
                         extraction_text="2026-01-10 10:00:00",
                         attributes={
-                            "subject": "[至急] WisE システム不具合",
+                            "subject": "[至急]WisEシステム不具合",
                             "sender": "support@toyota-tsusho.com",
                             "recipients": ["dev@acrosstudio.co.jp"],
                             "received_at": "2026-01-10 10:00:00"
@@ -52,11 +53,11 @@ WisE で 不具合 が発生。 至急 修正 を。 期限 は 明日 です。
                     ),
                     Extraction(
                         extraction_class="analysis_result",
-                        extraction_text="至急 修正 を。",
+                        extraction_text="至急、修正をお願いします。",
                         attributes={
                             "importance": "重大",
-                            "summary": "WisEの不具合に関する至急の修正連絡。",
-                            "action_required": "不具合の修正対応"
+                            "summary": "WisEの不具合に関する修正依頼。",
+                            "action_required": "不具合の修正"
                         }
                     )
                 ]
@@ -64,28 +65,28 @@ WisE で 不具合 が発生。 至急 修正 を。 期限 は 明日 です。
             ExampleData(
                 text=text_2,
                 extractions=[
-                    Extraction(extraction_class="person", extraction_text="保知"),
+                    Extraction(extraction_class="person", extraction_text="保知様"),
                     Extraction(extraction_class="person", extraction_text="西願寺"),
                     Extraction(extraction_class="company", extraction_text="トヨタ通商"),
                     Extraction(extraction_class="keyword", extraction_text="打ち合わせ"),
-                    Extraction(extraction_class="keyword", extraction_text="同席"),
+                    Extraction(extraction_class="keyword", extraction_text="ご同席"),
                     Extraction(
                         extraction_class="header_info",
                         extraction_text="2026-01-11 09:00:00",
                         attributes={
                             "subject": "会議のご案内",
                             "sender": "saiganji@toyota-tsusho.com",
-                            "recipients": ["hochi@acrosstudio.co.jp", "kido@acrosstudio.co.jp"],
+                            "recipients": ["hochi@acrosstudio.co.jp"],
                             "received_at": "2026-01-11 09:00:00"
                         }
                     ),
                     Extraction(
                         extraction_class="analysis_result",
-                        extraction_text="ご 同席 ください。",
+                        extraction_text="ご同席ください。",
                         attributes={
                             "importance": "通常",
-                            "summary": "来週の打ち合わせ案内と同席依頼。",
-                            "action_required": "打ち合わせへの同席"
+                            "summary": "来週の打ち合わせ案内。",
+                            "action_required": "打ち合わせへの出席"
                         }
                     )
                 ]
@@ -93,33 +94,17 @@ WisE で 不具合 が発生。 至急 修正 を。 期限 は 明日 です。
         ]
 
     def extract(self, markdown_text: str) -> tuple[EmailExtraction, lx.data.AnnotatedDocument]:
-        """
-        Metadata(header_info) と分析結果(analysis_result) を分離して抽出
-        """
         examples = self._get_examples()
         
         prompt_description = """
-        メールのMarkdownから情報を抽出してください。
+        メールを分析してください。
         
-        ---1. ヘッダー情報 (header_info クラス)---
-        メールの形式的な情報を属性として抽出してください。
-        - subject: 件名
-        - sender: 送信者 (From)
-        - recipients: 受信者リスト (To)
-        - received_at: 受信日時 (Received)
+        ---人物抽出の注意---
+        - person: 本文に出現する人物名。アライメント確度を上げるため、「様」等の敬称がある場合はそれも含めて抽出してください。
         
-        ---2. 分析結果 (analysis_result クラス)---
-        本文の内容を解釈した結果を属性として抽出してください。
-        - importance: '重大', '通常', '低'
-        - summary: 本文の要約（日本語）
-        - action_required: 具体的な行動指示（委婉な依頼も含む）
-        
-        ---3. 個別エンティティ (本文中のハイライト用)---
-        - person: 人物名
-        - company: 会社名
-        - project: プロジェクト・システム名
-        - keyword: 判断根拠となったキーワード
-        - deadline: 期限・日時
+        ---その他---
+        - company, project, keyword, deadline: 本文中の該当箇所を抽出。
+        - header_info, analysis_result: 属性として各情報を抽出。
         """
 
         annotated_doc = lx.extract(
@@ -137,12 +122,26 @@ WisE で 不具合 が発生。 至急 修正 を。 期限 は 明日 です。
             "people": [], "companies": [], "projects": [], "keywords": []
         }
 
+        # 敬称の自動クリーンアップ用
+        honorifics = ["様", "先生", "殿", "氏", "君", "さん"]
+
         for ext in annotated_doc.extractions:
             c = ext.extraction_class
             t = ext.extraction_text
             a = ext.attributes or {}
 
-            if c == "person": res["people"].append(t)
+            if c == "person":
+                clean_name = t
+                for h in honorifics:
+                    if clean_name.endswith(h):
+                        clean_name = clean_name[:-len(h)].strip()
+                        # HTML高亮の範囲を敬称の手前までに縮小
+                        # 注: char_interval.start_pos/end_pos を使用
+                        if hasattr(ext, 'char_interval') and ext.char_interval:
+                            ext.char_interval.end_pos = ext.char_interval.start_pos + len(clean_name)
+                        break
+                res["people"].append(clean_name)
+            
             elif c == "company": res["companies"].append(t)
             elif c == "project": res["projects"].append(t)
             elif c == "keyword": res["keywords"].append(t)
