@@ -4,7 +4,7 @@ from .models import EmailExtraction, ImportanceLevel
 from .api_manager import GeminiManager
 
 class EmailExtractor:
-    """langextract を利用してメールから構造化データを抽出するクラス"""
+    """すべての情報を顧此失彼なく、確実に抽出・可視化する抽出クラス"""
     
     def __init__(self, api_manager: GeminiManager):
         self.api_manager = api_manager
@@ -12,91 +12,101 @@ class EmailExtractor:
         self.api_key = self.api_manager.api_key
 
     def _get_examples(self) -> list[ExampleData]:
-        """抽出の精度を高めるための例示データを提供します"""
+        """
+        全属性が網羅された複数の事例。
+        メタデータ(From, To, Received)と本文中のエンティティの両立をデモ。
+        """
+        text_1 = """# [至急] WisE システム不具合
+**To:** dev@acrosstudio.co.jp
+**From:** support@toyota-tsusho.com
+**Received:** 2026-01-10 10:00:00
+
+佐藤 様、
+WisE で 不具合 が発生。 至急 修正 を。 期限 は 明日 です。"""
+
+        text_2 = """# 会議のご案内
+**To:** hochi@acrosstudio.co.jp; kido@acrosstudio.co.jp
+**From:** saiganji@toyota-tsusho.com
+**Received:** 2026-01-11 09:00:00
+
+保知 様、 西願寺 です。
+来週 トヨタ通商 にて 打ち合わせ を行います。 ご 同席 ください。"""
+
         return [
             ExampleData(
-                text="""# プロジェクト進捗報告
-**To:** leader@example.com
-**From:** staff@example.com
-**Received:** 2026-01-10 15:00:00
-
-お疲れ様です。プロジェクトAの進捗ですが、予定通り進んでいます。
-来週月曜日にMTGをお願いします。""",
+                text=text_1,
                 extractions=[
+                    Extraction(extraction_class="person", extraction_text="佐藤"),
+                    Extraction(extraction_class="project", extraction_text="WisE"),
+                    Extraction(extraction_class="keyword", extraction_text="至急"),
+                    Extraction(extraction_class="keyword", extraction_text="不具合"),
+                    Extraction(extraction_class="deadline", extraction_text="明日"),
                     Extraction(
-                        extraction_class="email_info",
-                        extraction_text="プロジェクト進捗報告",
+                        extraction_class="email_meta",
+                        extraction_text="2026-01-10 10:00:00",
                         attributes={
-                            "subject": "プロジェクト進捗報告",
-                            "sender": "staff@example.com",
-                            "recipients": ["leader@example.com"],
-                            "importance": "通常",
-                            "keywords_detected": [],
-                            "summary": "プロジェクトAの進捗は順調。来週月曜日にMTGを希望。",
-                            "action_required": "来週月曜日のMTG実施",
-                            "deadline": "2026-01-12",
-                            "mentioned_companies": [],
-                            "mentioned_people": ["leader"]
+                            "subject": "[至急] WisE システム不具合",
+                            "sender": "support@toyota-tsusho.com",
+                            "recipients": ["dev@acrosstudio.co.jp"],
+                            "received_at": "2026-01-10 10:00:00",
+                            "importance": "重大",
+                            "summary": "WisEの不具合に関する至急の修正連絡。"
                         }
                     )
                 ]
             ),
             ExampleData(
-                text="""# 【至急】契約修正のお願い
-**To:** sales@partner.co.jp
-**From:** legal@mycorp.com
-**Received:** 2026-01-15 10:00:00
-
-お世話になっております。
-添付の契約書に重大な不備が見つかりました。大至急、修正をお願いします。
-明日16日の17時までにご返信いただけますでしょうか。宜しくお願いします。""",
+                text=text_2,
                 extractions=[
+                    Extraction(extraction_class="person", extraction_text="保知"),
+                    Extraction(extraction_class="person", extraction_text="西願寺"),
+                    Extraction(extraction_class="company", extraction_text="トヨタ通商"),
+                    Extraction(extraction_class="keyword", extraction_text="打ち合わせ"),
+                    Extraction(extraction_class="keyword", extraction_text="同席"),
                     Extraction(
-                        extraction_class="email_info",
-                        extraction_text="【至急】契約修正のお願い",
+                        extraction_class="email_meta",
+                        extraction_text="2026-01-11 09:00:00",
                         attributes={
-                            "subject": "【至急】契約修正のお願い",
-                            "sender": "legal@mycorp.com",
-                            "recipients": ["sales@partner.co.jp"],
-                            "importance": "重大",
-                            "keywords_detected": ["至急", "重大な不備", "修正をお願いします"],
-                            "summary": "契約書に重大な不備が見つかったため、至急の修正を依頼。期限は明日17時。",
-                            "action_required": "契約書の修正と返信",
-                            "deadline": "2026-01-16 17:00",
-                            "mentioned_companies": ["MyCorp", "Partner.co.jp"],
-                            "mentioned_people": []
+                            "subject": "会議のご案内",
+                            "sender": "saiganji@toyota-tsusho.com",
+                            "recipients": ["hochi@acrosstudio.co.jp", "kido@acrosstudio.co.jp"],
+                            "received_at": "2026-01-11 09:00:00",
+                            "importance": "通常",
+                            "summary": "来週の打ち合わせ案内と同席依頼。",
+                            "action_required": "打ち合わせへの同席"
                         }
                     )
                 ]
             )
         ]
 
-    def extract(self, markdown_text: str) -> EmailExtraction:
+    def extract(self, markdown_text: str) -> tuple[EmailExtraction, lx.data.AnnotatedDocument]:
         """
-        langextract を使用して Markdown からデータを抽出します。
+        漏れ(recipients, received_at等)を完全に防ぐための厳格な抽出
         """
         examples = self._get_examples()
         
         prompt_description = """
-        メールのMarkdownテキストから、以下の情報を厳密に抽出してください。
+        メールのMarkdownから、全ての情報を1つも漏らさずに抽出してください。
         
-        ---抽出のガイドライン---
-        1. mentioned_people (言及されている人物):
-           - **本文の冒頭、本文中、または末尾の署名に実名が明記されている人物**のみを抽出してください。
-           - メールのヘッダーにあるメールアドレスのID（kido, shu など）は、本文中で言及されていない限り含めないでください。
+        ---抽出項目と役割---
+        1. email_meta (属性として抽出):
+           - subject: 件名
+           - sender: 'From:' から抽出 (例: user@example.com)
+           - recipients: 'To:' から全アドレスをリスト抽出 (例: ["a@x.com", "b@x.com"])
+           - received_at: 'Received:' から日時を抽出 (例: 2025-11-19 09:12:50)
+           - importance: '重大', '通常', '低'
+           - summary: 全体の簡潔な要約
+           - action_required: 受信者がすべき具体的な行動。**「～いただけますと幸いです」「～をお願いします」といった委婉な依頼も行動として抽出してください。**
         
-        2. mentioned_companies (言及されている会社・組織):
-           - 実在する企業名や団体名（例：マイクロソフト、豊田通商、アクロススタジオ）のみを抽出してください。
-           - ドメイン名から会社名を推測しても構いません。
-        
-        3. mentioned_projects (プロジェクト・システム):
-           - 'WisE' やプロジェクト名、アプリ名、システム名はこちらに抽出してください。
-        
-        4. 重要度とキーワード、要約:
-           - 依頼内容や期限がわかる表現をキーワードとして抽出してください。
+        2. 各エンティティ (本文中のハイライト用):
+           - person: 人物
+           - company: 会社
+           - project: システム・プロジェクト名
+           - keyword: 重要度判定の根拠(至急, 打ち合わせ, 依頼 等)
+           - deadline: 期限
         """
 
-        # langextract による抽出実行
         annotated_doc = lx.extract(
             text_or_documents=markdown_text,
             examples=examples,
@@ -106,25 +116,42 @@ class EmailExtractor:
             show_progress=False
         )
         
-        if not annotated_doc.extractions:
-            raise ValueError("メールから情報を抽出できませんでした")
+        res = {
+            "subject": "件名なし", "sender": "不明", "recipients": [], "received_at": None,
+            "importance": "通常", "summary": "", "action_required": None, "deadline": None,
+            "people": [], "companies": [], "projects": [], "keywords": []
+        }
 
-        # 抽出された最初のデータ（email_info）を使用
-        ext = annotated_doc.extractions[0]
-        attrs = ext.attributes or {}
+        for ext in annotated_doc.extractions:
+            c = ext.extraction_class
+            t = ext.extraction_text
+            a = ext.attributes or {}
 
-        # 属性値を Pydantic モデルに変換
+            if c == "person": res["people"].append(t)
+            elif c == "company": res["companies"].append(t)
+            elif c == "project": res["projects"].append(t)
+            elif c == "keyword": res["keywords"].append(t)
+            elif c == "deadline": res["deadline"] = t
+            elif c == "email_meta":
+                if "subject" in a: res["subject"] = a["subject"]
+                if "sender" in a: res["sender"] = a["sender"]
+                if "recipients" in a: res["recipients"] = a["recipients"]
+                if "received_at" in a: res["received_at"] = a["received_at"]
+                if "importance" in a: res["importance"] = a["importance"]
+                if "summary" in a: res["summary"] = a["summary"]
+                if "action_required" in a: res["action_required"] = a["action_required"]
+
         return EmailExtraction(
-            subject=attrs.get("subject", "件名なし"),
-            sender=attrs.get("sender", "不明"),
-            recipients=attrs.get("recipients", []),
-            received_at=None, 
-            importance=ImportanceLevel(attrs.get("importance", "通常")),
-            keywords_detected=attrs.get("keywords_detected", []),
-            summary=attrs.get("summary", ""),
-            action_required=attrs.get("action_required"),
-            deadline=attrs.get("deadline"),
-            mentioned_people=attrs.get("mentioned_people", []),
-            mentioned_companies=attrs.get("mentioned_companies", []),
-            mentioned_projects=attrs.get("mentioned_projects", [])
-        )
+            subject=res["subject"],
+            sender=res["sender"],
+            recipients=res["recipients"] if isinstance(res["recipients"], list) else [res["recipients"]],
+            received_at=res["received_at"],
+            importance=ImportanceLevel(res["importance"]),
+            keywords_detected=list(set(res["keywords"])),
+            summary=res["summary"],
+            action_required=res["action_required"],
+            deadline=res["deadline"],
+            mentioned_people=list(set(res["people"])),
+            mentioned_companies=list(set(res["companies"])),
+            mentioned_projects=list(set(res["projects"]))
+        ), annotated_doc

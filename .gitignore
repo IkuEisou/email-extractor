@@ -5,5 +5,7 @@ __pycache__/
 *.json
 *.log
 *.md
+*.html
+*.jsonl
 !README.md
 list_models.py

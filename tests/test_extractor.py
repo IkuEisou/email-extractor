@@ -21,7 +21,7 @@ def test_extraction_basic(extractor):
     掲題の件、12/24のワークショップ準備としてMS社と打ち合わせすることになりました。
     """
     
-    result = extractor.extract(sample_email)
+    result, _ = extractor.extract(sample_email)
     
     # 検証
     assert isinstance(result, EmailExtraction)

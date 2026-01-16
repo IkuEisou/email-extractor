@@ -48,7 +48,7 @@ def bulk_process_emails(input_dir: str, output_file: str):
                 content = f.read()
             
             # データの抽出
-            extraction = extractor.extract(content)
+            extraction, _ = extractor.extract(content)
             
             # 辞書に変換してメタデータを追加
             data = extraction.model_dump()
